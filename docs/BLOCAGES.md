@@ -1,32 +1,131 @@
-# Journal des blocages — RAG-k8s
+---
+projet: RAG ONE ID
+type: blocages
+maj: 2026-09-10
+---
 
-## 2026-08-26 — Aucun manifest écrit, cluster cible non confirmé — RÉSOLU
+# Blocages et Points à Résoudre — RAG ONE ID v1.0.0
 
-**Description** : ce dépôt a été créé par cohérence avec le schéma
-AO-ID (`appel-offre-k8s`) mais aucun manifest K8s n'existait encore.
-**Cause** : le cluster/namespace cible pour la PROD de RAG ONE ID n'avait
-pas été explicitement confirmé.
-**État** : **RÉSOLU le 2026-09-10**. Cluster cible confirmé = **le même
-que AO-ID** (cluster ONE ID), namespace `numa` (cf `docs/DECISIONS.md`).
-Le jeu complet de manifests a été écrit (voir `README.md`).
+## 1. Qdrant StatefulSet : Permission Denied sur PVC Ceph RBD
 
-## 2026-09-10 — Réimport des vecteurs Qdrant après premier déploiement — OUVERT
+**État** : OUVERT
 
-**Description** : le Qdrant déployé dans le cluster (StatefulSet, PVC ceph-rbd
-vierge) démarre **vide**. La collection vectorielle `onenote_kbid` (~110 Mo)
-doit être réimportée après le premier déploiement.
-**Impact** : tant que le réimport n'est pas fait, les requêtes RAG ne
-retournent aucune source pertinente (`/api/health` peut pourtant répondre 200).
-**État** : ouvert — étape opérationnelle post-déploiement, NON couverte par
-les manifests. Procédure décrite dans `docs/EXPLOITATION.md` §5 (script
-d'indexation contre `http://qdrant:6333`, ou snapshot/restore Qdrant).
+**Description** :
+- Qdrant (UID 1000) ne peut pas créer de répertoires sur la PVC Ceph RBD montée en `/qdrant/storage`
+- Erreur : `Permission denied` lors de la création de `/qdrant/storage/snapshots`
+- La PVC est montée avec `root:root 755` — l'utilisateur 1000 ne peut y écrire
 
-## 2026-09-10 — DNS ragid.one-id.fr à créer côté infra — OUVERT
+**Cause probable** :
+- Le `fsGroup: 1000` du pod n'est pas appliqué correctement par Ceph RBD
+- C'est une limitation connue Kubernetes + Ceph RBD — `fsGroup` ne fonctionne pas sur tous les storageClass
 
-**Description** : l'exposition HTTPS suppose un enregistrement DNS
-`ragid.one-id.fr` → `10.13.1.104` (IP du Gateway gw01).
-**Impact** : sans cet enregistrement, l'URL publique n'est pas résoluble
-(le TLS wildcard `*.one-id.fr` couvre déjà le certificat).
-**État** : ouvert — à créer par l'équipe infra. Documenté dans `README.md`
-et `docs/EXPLOITATION.md` §4. À enregistrer aussi côté Azure AD :
-`https://ragid.one-id.fr/auth/callback`.
+**Qui peut résoudre** : Fabrice ou Jérémy (infra, gestion Ceph RBD)
+
+**Solutions possibles** :
+1. Vérifier la config du storageClass Ceph RBD — doit avoir des permissions d'écriture en groupe
+2. Pré-créer les répertoires `/qdrant/storage/snapshots` et `/qdrant/storage/collections` avec les bonnes permissions
+3. Utiliser un init container dans le StatefulSet pour créer les répertoires en tant qu'utilisateur 1000
+
+**Impact** : Qdrant est DOWN — pas de base vectorielle. L'API RAG fonctionne mais ne retrouve aucun document pertinent.
+
+**Dépendance** : Bloque la démo complète (retrieval + génération). L'API seule (health check, login) fonctionne.
+
+---
+
+## 2. DNS ragid.one-id.fr manquant
+
+**État** : OUVERT
+
+**Description** :
+- L'enregistrement DNS `ragid.one-id.fr` → `10.13.1.104` (Gateway gw01) n'existe pas
+- HTTPRoute est configurée mais inaccessible publiquement
+
+**Qui peut résoudre** : Infra ONE ID (gestion DNS)
+
+**Impact** : Impossible d'accéder à `https://ragid.one-id.fr` depuis l'extérieur du cluster
+
+---
+
+## 3. Azure AD Redirect URI non enregistrée
+
+**État** : À VÉRIFIER
+
+**Description** :
+- La Redirect URI `https://ragid.one-id.fr/auth/callback` doit être enregistrée sur l'app Azure AD « RAG ONE ID - Web Login »
+- App ID: `c573121c-c1bc-4855-893c-e4dfc06f51ab`
+
+**Qui peut résoudre** : Admin Azure AD ONE ID ou propriétaire de l'app
+
+**Impact** : Authentification O365 échouera (`AADSTS50011` redirect URI not registered)
+
+---
+
+## 4. Réimport des vecteurs Qdrant
+
+**État** : BLOQUÉ (dépend de #1)
+
+**Description** :
+- Une fois Qdrant opérationnel, il faut réimporter la collection `onenote_kbid` (~110 Mo)
+- Données sources disponibles : `/home/numa/projets/RAG/PREPROD/data/onenote_embeddings.jsonl`
+
+**Procédure** :
+```bash
+# Depuis djinn-bot, une fois Qdrant UP
+python3 -c "
+from qdrant_client import QdrantClient
+from retrieval.qdrant_utils import load_embeddings_from_file
+
+client = QdrantClient('http://qdrant:6333')
+load_embeddings_from_file(client, 'data/onenote_embeddings.jsonl')
+"
+```
+
+Ou plus sûrement : snapshot + restore depuis l'instance Qdrant preprod de djinn-bot.
+
+---
+
+## 5. Workflow GitHub Actions : Token permissions insuffisantes
+
+**État** : CONTOURNÉ (déploiement manuel pour v1.0.0)
+
+**Description** :
+- Le workflow GitHub Actions échoue sur l'accès au dépôt `RAG-ONE-ID-K8s` (privé)
+- Token `ghp_w7...` n'a pas les scopes requis ou l'orga NUMA-ID n'accorde pas l'accès
+
+**Contournement actif** :
+- Déploiement manuel (SSH + kubectl) depuis djinn-bot / Windows
+- Fonctionne mais lourd pour les futures versions
+
+**Solution** :
+- Créer un token GitHub avec scope `repo:all` (accès complet aux dépôts privés NUMA-ID)
+- Ou rendre le dépôt `RAG-ONE-ID-K8s` public
+- Ou configurer OIDC vers GitHub (meilleure pratique, zéro secret)
+
+---
+
+## 6. Permission d'écriture RAG-ID sur PVC
+
+**État** : RÉSOLU (pour v1.0.0)
+
+**Description** :
+- Pod RAG-ID (UID 10001) a besoin d'écrire sur `/app/data/rag_oneid.db` (PVC SQLite)
+- Initialement échouait avec `sqlite3.OperationalError: unable to open database file`
+
+**Solution appliquée** :
+- Ajout de `fsGroup: 10001` dans le securityContext du Deployment
+- Le groupe 10001 peut maintenant écrire sur la PVC
+
+**Statut** : ✅ Fonctionnel pour v1.0.0
+
+---
+
+## 7. Qdrant Permission - Contournement testé mais inefficace
+
+**État** : CONTOURNÉ (provisoire, non opérationnel)
+
+**Tentative** :
+- Job Kubernetes avec busybox pour pré-créer `/qdrant/storage/snapshots` en tant que UID 1000
+- Bloqué sur ContainerCreating (NetworkPolicy empêche le pull d'image ?)
+
+**Résultat** : Job supprimé, solution abandonnée (en attente d'une vraie correction infra)
+

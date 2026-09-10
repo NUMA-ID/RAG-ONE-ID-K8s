@@ -22,9 +22,10 @@ spec:
     spec:
       securityContext:
         # Le pod doit tourner sous l'utilisateur non-root créé dans le Dockerfile RAG.
-        # On N'IMPOSE PAS de runAsUser en dur ici pour ne pas contredire l'UID de
-        # l'image (l'UID exact est défini par le Dockerfile — cf RAG-002).
+        # runAsUser: 10001 (appuser, créé dans le Dockerfile Dockerfile ligne ~50).
         runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001  # Permet au groupe 10001 d'écrire sur les PVC montées
       containers:
         - name: rag-id
           image: apicall.one-id.fr/numa/rag-id:1.0

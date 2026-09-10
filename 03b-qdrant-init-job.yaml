@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qdrant-init-storage
+  namespace: numa
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: storage-qdrant-0
+      containers:
+        - name: init-qdrant-storage
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Creating Qdrant storage directories as UID 1000..."
+              mkdir -p /qdrant/storage/snapshots
+              mkdir -p /qdrant/storage/collections
+              mkdir -p /qdrant/storage/raft_state
+              chmod 755 /qdrant/storage
+              ls -la /qdrant/storage/
+              echo "Done. Qdrant can now start."
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
