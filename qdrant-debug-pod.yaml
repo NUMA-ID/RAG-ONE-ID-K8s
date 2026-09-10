@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: qdrant-debug
+  namespace: numa
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: false
+    runAsUser: 0  # root pour pouvoir changer les permissions
+  volumes:
+    - name: storage
+      persistentVolumeClaim:
+        claimName: storage-qdrant-0
+  containers:
+    - name: debug
+      image: busybox:latest
+      command:
+        - sh
+        - -c
+        - |
+          echo "=== Avant ==="
+          ls -la /qdrant/storage/
+          echo ""
+          echo "=== Créer répertoires ==="
+          mkdir -p /qdrant/storage/snapshots
+          mkdir -p /qdrant/storage/collections
+          mkdir -p /qdrant/storage/raft_state
+          echo ""
+          echo "=== Changer propriétaire à 1000:1000 (qdrant user) ==="
+          chown -R 1000:1000 /qdrant/storage
+          chmod 755 /qdrant/storage
+          echo ""
+          echo "=== Après ==="
+          ls -la /qdrant/storage/
+          echo "Done. Qdrant peut démarrer."
+          sleep 3
+      volumeMounts:
+        - name: storage
+          mountPath: /qdrant/storage

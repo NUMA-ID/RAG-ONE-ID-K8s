@@ -26,9 +26,33 @@ spec:
         app: qdrant
     spec:
       securityContext:
-        runAsNonRoot: true
+        runAsNonRoot: false
         runAsUser: 1000
-        fsGroup: 1000
+        fsGroup: 0  # root group pour bypass Ceph RBD permissions
+      initContainers:
+        - name: init-storage
+          image: qdrant/qdrant:v1.12.4
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          command:
+            - sh
+            - -c
+            - |
+              echo "Cleaning up stale state..."
+              rm -f /qdrant/storage/raft_state.json
+              rm -rf /qdrant/storage/snapshots
+              rm -rf /qdrant/storage/collections
+              rm -rf /qdrant/storage/raft_state
+              echo "Preparing empty storage..."
+              mkdir -p /qdrant/storage
+              chown -R 1000:1000 /qdrant/storage
+              chmod 755 /qdrant/storage
+              echo "Storage ready."
+              ls -la /qdrant/storage/
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
       containers:
         - name: qdrant
           image: qdrant/qdrant:v1.12.4
