@@ -8,7 +8,34 @@ maj: 2026-09-10
 
 ## 1. Qdrant StatefulSet : Permission Denied sur PVC Ceph RBD
 
-**État** : OUVERT
+**État** : RÉSOLU (10/09, diagnostic infra)
+
+**Cause racine réelle** (le PVC/Ceph RBD n'était PAS en cause, contrairement à
+l'hypothèse initiale) : l'image `qdrant/qdrant:v1.12.4` utilise par défaut des
+chemins RELATIFS résolus depuis le CWD `/qdrant` :
+- `storage_path: ./storage` → `/qdrant/storage` (monté sur le PVC : OK)
+- `snapshots_path: ./snapshots` → `/qdrant/snapshots` (couche image, root:root
+  755, PAS monté : KO en non-root)
+
+En `runAsNonRoot: true` / `runAsUser: 1000` (requis par la policy PodSecurity
+du cluster), Qdrant ne pouvait pas créer `/qdrant/snapshots` → panic immédiat
+au démarrage, avant même de toucher au PVC.
+
+**Correctif appliqué** (`03-qdrant.yaml`) :
+1. `env: QDRANT__STORAGE__SNAPSHOTS_PATH=/qdrant/storage/snapshots` — force le
+   chemin des snapshots vers un sous-dossier du PVC monté (chemin absolu).
+2. `securityContext` repassé à la config saine : `runAsNonRoot: true`,
+   `runAsUser: 1000`, `fsGroup: 1000` (les contournements `fsGroup: 0` /
+   `runAsNonRoot: false` tentés en session précédente sont retirés).
+3. `initContainer` rendu **non-destructif** : `mkdir -p` idempotent uniquement,
+   suppression des `rm -f`/`rm -rf` qui effaçaient collections + raft_state à
+   CHAQUE redémarrage de pod (voir point 7 ci-dessous, anomalie critique
+   distincte détectée par l'infra avant mise en prod réelle avec données).
+
+**Vérifié** : `qdrant-0` 1/1 Running stable, HTTP 6333 listening, `rag-id`
+redémarré et reconnecté (health check 200 OK).
+
+**Ancien état (archivé, pour référence)** : OUVERT
 
 **Description** :
 - Qdrant (UID 1000) ne peut pas créer de répertoires sur la PVC Ceph RBD montée en `/qdrant/storage`
@@ -121,7 +148,7 @@ Ou plus sûrement : snapshot + restore depuis l'instance Qdrant preprod de djinn
 
 ## 7. Qdrant Permission - Contournement testé mais inefficace
 
-**État** : CONTOURNÉ (provisoire, non opérationnel)
+**État** : RÉSOLU — voir point 1 pour la cause racine et le correctif final
 
 **Tentative** :
 - Job Kubernetes avec busybox pour pré-créer `/qdrant/storage/snapshots` en tant que UID 1000
