@@ -1,0 +1,19 @@
+# /home/numa/projets/RAG-k8s/09-backendtrafficpolicy-rag-id.yaml
+# Augmente le timeout Envoy Gateway pour la route rag-id (defaut 15s, insuffisant
+# pour les appels RAG : retrieval bge-m3 + generation LLM, qui durent 10-40s+).
+# Le client HTTP cote code a un timeout de 240s ; on aligne large cote Envoy pour
+# ne pas couper une requete legitime en cours (requestTimeout 240s, idle un peu au-dessus).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: rag-id-timeout
+  namespace: numa
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: rag-id
+  timeout:
+    http:
+      requestTimeout: 240s
+      connectionIdleTimeout: 250s

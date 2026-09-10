@@ -1,0 +1,28 @@
+# Autorise l'ingress vers les pods qdrant sur 6333 (HTTP) et 6334 (gRPC) depuis
+# les pods rag-id UNIQUEMENT.
+# Hypothese (a verifier faute d'acces cluster) : le cluster applique une baseline
+# qui restreint le trafic (c'est ce qui justifie les netpol explicites d'AO-ID) ;
+# par prudence on ouvre donc explicitement l'ingress Qdrant depuis rag-id plutot
+# que de compter sur une politique par defaut permissive. Cette policy ne restreint
+# QUE ce qui cible les pods qdrant et ne bloque pas leur trafic sortant.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-qdrant-from-rag-id
+  namespace: numa
+spec:
+  podSelector:
+    matchLabels:
+      app: qdrant
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: rag-id
+      ports:
+        - protocol: TCP
+          port: 6333
+        - protocol: TCP
+          port: 6334

@@ -1,0 +1,128 @@
+# Deployment + Service de l'API RAG ONE ID (FastAPI + pipeline bge-m3 + LLM interne).
+# replicas: 1 IMPOSÉ : l'historique SQLite est sur un PVC ReadWriteOnce (un seul
+#   monteur possible) — cf docs/DECISIONS.md.
+# Port conteneur 8080 (aligné sur AO-ID / le Dockerfile RAG expose 8080).
+# Le gateway gw01 (Envoy) parle au pod en HTTP sur 8080 après terminaison TLS.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-id
+  namespace: numa
+  labels:
+    app: rag-id
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-id
+  template:
+    metadata:
+      labels:
+        app: rag-id
+    spec:
+      securityContext:
+        # Le pod doit tourner sous l'utilisateur non-root créé dans le Dockerfile RAG.
+        # On N'IMPOSE PAS de runAsUser en dur ici pour ne pas contredire l'UID de
+        # l'image (l'UID exact est défini par le Dockerfile — cf RAG-002).
+        runAsNonRoot: true
+      containers:
+        - name: rag-id
+          image: apicall.one-id.fr/numa/rag-id:1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            # --- Qdrant intra-cluster : lu par indexer/qdrant_store.py (os.environ) ---
+            - name: QDRANT_URL
+              value: "http://qdrant:6333"
+            # --- LLM interne : le client utilise son défaut code https://llm.one-id.fr
+            #     si non câblé ; renseigné ici pour lisibilité / évolution éventuelle. ---
+            - name: LLM_BASE_URL
+              value: "https://llm.one-id.fr"
+            # --- Chemin explicite du SQLite historique sur le PVC monté (voir volumeMounts).
+            #     Le code lit RAG_DB_PATH (défaut data/rag_oneid.db relatif au WORKDIR
+            #     /app). On fixe la valeur absolue pour lever toute ambiguïté. ---
+            - name: RAG_DB_PATH
+              value: "/app/data/rag_oneid.db"
+            # --- URL publique de callback OAuth2 (à enregistrer côté Azure AD). ---
+            - name: AZURE_REDIRECT_URI
+              value: "https://ragid.one-id.fr/auth/callback"
+            # --- Secrets (voir 01-secrets.yaml / rag-id-secrets) ---
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rag-id-secrets
+                  key: LLM_API_KEY
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: rag-id-secrets
+                  key: AZURE_CLIENT_ID
+            - name: AZURE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: rag-id-secrets
+                  key: AZURE_CLIENT_SECRET
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: rag-id-secrets
+                  key: AZURE_TENANT_ID
+            - name: SESSION_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rag-id-secrets
+                  key: SESSION_SECRET_KEY
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          # /api/health renvoie 200 {"status":"ok"} SEULEMENT quand le pipeline RAG
+          # (bge-m3 + Qdrant + client LLM) est chargé, 503 sinon. C'est le bon endpoint
+          # de readiness. Le chargement de bge-m3 (CPU + torch) est LONG au démarrage :
+          # initialDelay et failureThreshold généreux pour ne pas tuer le pod pendant
+          # le chargement initial.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            # ESTIMATION à ajuster après observation réelle. bge-m3 (CPU) + torch
+            # chargés en RAM : NE PAS descendre sous 2Gi de requests sous peine d'OOM
+            # au chargement du modèle. Les pics peuvent monter -> limite à 4Gi.
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rag-id-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-id
+  namespace: numa
+  labels:
+    app: rag-id
+spec:
+  selector:
+    app: rag-id
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

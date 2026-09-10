@@ -1,0 +1,59 @@
+# Egress pour le pod rag-id : autorise la resolution DNS + les appels HTTPS sortants
+# + l'acces a Qdrant intra-cluster.
+# ATTENTION : des qu'une regle Egress cible le pod, tout le reste de l'egress est
+# refuse par defaut -> on autorise donc explicitement chaque flux necessaire.
+# Sans la regle Qdrant (3), l'egress par defaut refuse bloquerait l'appli
+# (meme piege que documente pour AO-ID cote egress).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rag-id-egress
+  namespace: numa
+spec:
+  podSelector:
+    matchLabels:
+      app: rag-id
+  policyTypes:
+    - Egress
+  egress:
+    # 1. DNS (resolution de llm.one-id.fr, login.microsoftonline.com,
+    #    graph.microsoft.com, et eventuellement huggingface.co)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. HTTPS sortant (443) vers Internet/interne :
+    #    - llm.one-id.fr (generation)
+    #    - login.microsoftonline.com + graph.microsoft.com (auth O365)
+    #    - huggingface.co UNIQUEMENT si bge-m3 n'est pas pre-embarque dans l'image.
+    #      Il DOIT l'etre (cf RAG-002) ; si le pre-telechargement build echoue,
+    #      le 443 vers 0.0.0.0/0 ci-dessous couvre deja huggingface.co.
+    #    Le cluster ne fait pas de filtrage L7 -> 0.0.0.0/0 comme AO-ID.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+    # 3. Qdrant intra-cluster (Service qdrant, pods app: qdrant dans le ns numa)
+    #    sur 6333 (HTTP, utilise par l'appli) et 6334 (gRPC).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: numa
+          podSelector:
+            matchLabels:
+              app: qdrant
+      ports:
+        - protocol: TCP
+          port: 6333
+        - protocol: TCP
+          port: 6334

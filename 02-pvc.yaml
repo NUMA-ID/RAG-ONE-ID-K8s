@@ -1,0 +1,17 @@
+# Volume persistant pour les données en écriture de l'API RAG.
+# Contient l'historique SQLite des conversations (RAG_DB_PATH -> /app/data/rag_oneid.db).
+# ReadWriteOnce impose un seul pod monteur -> Deployment replicas: 1 (cf docs/DECISIONS.md).
+# Le stockage de Qdrant N'EST PAS ici : il est géré par le volumeClaimTemplate du
+# StatefulSet qdrant (voir 03-qdrant.yaml).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rag-id-data
+  namespace: numa
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 2Gi

@@ -1,0 +1,42 @@
+# .dockerignore pour le build de l'image RAG ONE ID.
+#
+# ATTENTION — chemins relatifs à la RACINE DU CONTEXTE DE BUILD, qui est le
+# dépôt PREPROD (/home/numa/projets/RAG/PREPROD), PAS ce dépôt k8s.
+# Docker lit le .dockerignore situé à la racine du contexte de build ; ce
+# fichier doit donc être présent à la racine de PREPROD au moment du build
+# (le copier depuis RAG-k8s/.dockerignore vers PREPROD/.dockerignore avant le
+# build, puis le retirer — voir l'en-tête du Dockerfile).
+#
+# Les COPY du Dockerfile sont déjà sélectifs (pas de `COPY . /app`), donc
+# data/ et qdrant_storage/ ne finissent de toute façon jamais dans l'image ;
+# ce fichier sert surtout à alléger le contexte envoyé au démon Docker et à
+# se prémunir contre un COPY trop large.
+
+# Environnements et caches Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Historique et métadonnées Git
+.git/
+.gitignore
+
+# Données runtime : montées sur PVC en prod, jamais dans l'image
+data/
+qdrant_storage/
+
+# Secrets et config locale
+.env
+*.msal_cache.json
+*.log
+
+# Tests (non nécessaires dans l'image de prod)
+tests/
+
+# Docs et divers dépôt (non nécessaires au runtime)
+docs/
+README.md

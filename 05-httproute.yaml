@@ -1,0 +1,28 @@
+# Exposition de l'API RAG via le Gateway gw01 (Envoy Gateway), IP 10.13.1.104.
+# Le Gateway autorise les routes de tous les namespaces (allowedRoutes: From All),
+# donc l'HTTPRoute vit dans le namespace applicatif "numa".
+# TLS : assuré par le listener https de gw01 (cert wildcard *.one-id.fr).
+# DNS : faire pointer ragid.one-id.fr -> 10.13.1.104 (à créer côté infra).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: rag-id
+  namespace: numa
+spec:
+  parentRefs:
+    - name: gw01
+      namespace: gw01
+      sectionName: https      # listener 443 (TLS wildcard *.one-id.fr)
+    - name: gw01
+      namespace: gw01
+      sectionName: http       # listener 80 (accès en clair / avant redirection)
+  hostnames:
+    - "ragid.one-id.fr"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: rag-id
+          port: 80

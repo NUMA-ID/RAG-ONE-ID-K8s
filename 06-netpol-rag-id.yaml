@@ -1,0 +1,20 @@
+# Autorise l'ingress vers le pod rag-id sur le port 8080 (le gateway gw01/Envoy
+# parle au pod en HTTP sur 8080 apres terminaison TLS).
+# Necessaire car la policy existante "allow-https-ingress-from-all" (qui cible
+# tous les pods du ns numa) n'ouvre que le 443, ce qui bloquerait le 8080.
+# Les NetworkPolicies s'additionnent : cette regle ouvre 8080 sans toucher le reste.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rag-id-8080
+  namespace: numa
+spec:
+  podSelector:
+    matchLabels:
+      app: rag-id
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080

@@ -1,0 +1,95 @@
+# Qdrant dédié à l'API RAG ONE ID, déployé DANS le cluster (base vectorielle).
+# Choix : StatefulSet 1 replica (identité stable + volume persistant par pod) plutôt
+# que d'exposer le Qdrant de djinn-bot (cf docs/DECISIONS.md).
+# Version EXACTE v1.12.4 : compat testée avec qdrant-client==1.12.2 côté appli.
+# Exposition INTERNE uniquement (ClusterIP) — pas d'HTTPRoute, pas d'accès externe.
+# Ports : 6333 (HTTP/REST) et 6334 (gRPC). L'appli parle en HTTP sur 6333.
+# securityContext : l'image officielle qdrant/qdrant tourne en user 1000 (non-root)
+#   par défaut. On l'expose explicitement (runAsNonRoot) ; à vérifier au premier
+#   déploiement que l'écriture sur /qdrant/storage (PVC ceph-rbd) reste possible.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  namespace: numa
+  labels:
+    app: qdrant
+spec:
+  serviceName: qdrant
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.12.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 6333
+            - name: grpc
+              containerPort: 6334
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 6333
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 6333
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: ceph-rbd
+        resources:
+          requests:
+            storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: numa
+  labels:
+    app: qdrant
+spec:
+  # ClusterIP par défaut : accessible uniquement en intra-cluster (http://qdrant:6333).
+  selector:
+    app: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: 6333
+    - name: grpc
+      port: 6334
+      targetPort: 6334
