@@ -4,9 +4,17 @@
 # Version EXACTE v1.12.4 : compat testée avec qdrant-client==1.12.2 côté appli.
 # Exposition INTERNE uniquement (ClusterIP) — pas d'HTTPRoute, pas d'accès externe.
 # Ports : 6333 (HTTP/REST) et 6334 (gRPC). L'appli parle en HTTP sur 6333.
-# securityContext : l'image officielle qdrant/qdrant tourne en user 1000 (non-root)
-#   par défaut. On l'expose explicitement (runAsNonRoot) ; à vérifier au premier
-#   déploiement que l'écriture sur /qdrant/storage (PVC ceph-rbd) reste possible.
+#
+# CAUSE RACINE (diagnostiquée par l'infra, résolue le 10/09) : la config par défaut
+# de l'image qdrant/qdrant utilise des chemins RELATIFS résolus depuis le CWD /qdrant :
+#   storage_path:   ./storage    -> /qdrant/storage   (monté sur le PVC : OK)
+#   snapshots_path: ./snapshots  -> /qdrant/snapshots  (couche image, NON monté, KO)
+# Le dossier /qdrant appartient à root:root 755 dans l'image ; en non-root (uid 1000,
+# requis par la policy PodSecurity du cluster), Qdrant ne peut pas créer ce répertoire
+# au démarrage -> panic immédiat "Can't create Snapshots directory: Permission denied".
+# Le PVC/Ceph RBD n'est PAS en cause (vérifié par test d'écriture indépendant côté infra).
+# CORRECTIF : forcer le chemin des snapshots vers un sous-dossier du PVC monté, via
+# la variable d'env QDRANT__STORAGE__SNAPSHOTS_PATH (voir env: ci-dessous).
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -26,29 +34,26 @@ spec:
         app: qdrant
     spec:
       securityContext:
-        runAsNonRoot: false
+        runAsNonRoot: true
         runAsUser: 1000
-        fsGroup: 0  # root group pour bypass Ceph RBD permissions
+        fsGroup: 1000
       initContainers:
+        # Prépare uniquement le sous-répertoire snapshots s'il n'existe pas encore.
+        # NE JAMAIS supprimer de données ici : ce container s'exécute à CHAQUE
+        # démarrage de pod (crash, redémarrage, migration de nœud...) — un rm -rf
+        # ici effacerait collections/raft_state à chaque redémarrage (incident du
+        # 10/09, cf docs/BLOCAGES.md). Idempotent par construction (mkdir -p).
         - name: init-storage
           image: qdrant/qdrant:v1.12.4
           securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
+            runAsUser: 1000
+            runAsNonRoot: true
           command:
             - sh
             - -c
             - |
-              echo "Cleaning up stale state..."
-              rm -f /qdrant/storage/raft_state.json
-              rm -rf /qdrant/storage/snapshots
-              rm -rf /qdrant/storage/collections
-              rm -rf /qdrant/storage/raft_state
-              echo "Preparing empty storage..."
-              mkdir -p /qdrant/storage
-              chown -R 1000:1000 /qdrant/storage
-              chmod 755 /qdrant/storage
-              echo "Storage ready."
+              mkdir -p /qdrant/storage/snapshots
+              echo "Storage snapshots dir ready (non-destructif)."
               ls -la /qdrant/storage/
           volumeMounts:
             - name: storage
@@ -57,6 +62,13 @@ spec:
         - name: qdrant
           image: qdrant/qdrant:v1.12.4
           imagePullPolicy: IfNotPresent
+          env:
+            # Redirige le chemin des snapshots (relatif par défaut : ./snapshots,
+            # résolu hors du PVC) vers un chemin absolu SUR le volume persistant.
+            # Sans ça, Qdrant tente d'écrire sur la couche image (root:root, non
+            # accessible en uid 1000) et panique au démarrage.
+            - name: QDRANT__STORAGE__SNAPSHOTS_PATH
+              value: /qdrant/storage/snapshots
           ports:
             - name: http
               containerPort: 6333
