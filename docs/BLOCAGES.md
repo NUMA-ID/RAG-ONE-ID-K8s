@@ -89,25 +89,23 @@ redémarré et reconnecté (health check 200 OK).
 
 ## 4. Réimport des vecteurs Qdrant
 
-**État** : BLOQUÉ (dépend de #1)
+**État** : RÉSOLU (10/09)
 
-**Description** :
-- Une fois Qdrant opérationnel, il faut réimporter la collection `onenote_kbid` (~110 Mo)
-- Données sources disponibles : `/home/numa/projets/RAG/PREPROD/data/onenote_embeddings.jsonl`
+**Procédure appliquée** : snapshot/restore Qdrant natif (pas de réingestion
+OneNote complète, plus rapide et fiable) :
+1. Snapshot créé sur le Qdrant local djinn-bot : `POST /collections/onenote_kbid/snapshots`
+   (9972 points, 114 Mo)
+2. Snapshot téléchargé puis transféré vers le cluster via relais Windows
+   (`scp` + `kubectl cp` dans le pod `qdrant-0`, chemin `/qdrant/storage/snapshots/`)
+3. Restauration via `PUT /collections/onenote_kbid/snapshots/recover` avec
+   `location: file:///qdrant/storage/snapshots/onenote_kbid.snapshot`
+   (exécuté via un script PowerShell avec `kubectl port-forward` temporaire,
+   car l'image Qdrant slim n'a ni `curl` ni `wget`)
+4. Vérifié : `points_count: 9972`, `status: green` — identique à la source
+5. Fichiers temporaires nettoyés (snapshot supprimé du pod et du poste Windows)
 
-**Procédure** :
-```bash
-# Depuis djinn-bot, une fois Qdrant UP
-python3 -c "
-from qdrant_client import QdrantClient
-from retrieval.qdrant_utils import load_embeddings_from_file
-
-client = QdrantClient('http://qdrant:6333')
-load_embeddings_from_file(client, 'data/onenote_embeddings.jsonl')
-"
-```
-
-Ou plus sûrement : snapshot + restore depuis l'instance Qdrant preprod de djinn-bot.
+**Résultat** : Qdrant cluster a maintenant les mêmes données que djinn-bot.
+Le RAG peut retrouver les documents OneNote KBID en production.
 
 ---
 
