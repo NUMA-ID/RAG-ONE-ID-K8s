@@ -46,3 +46,24 @@ ajuster après observation réelle de la consommation en prod.
 **Raison** : les requêtes RAG (retrieval + génération LLM) durent 10–40s+ ;
 le client HTTP côté code a un timeout de 240s. On aligne large côté Envoy
 (défaut 15s insuffisant, même piège que documenté pour AO-ID).
+
+## 2026-09-11 — Bascule v1.0 → v1.1 (rendu Markdown + suivi conversationnel)
+
+Nouveau tag d'image `apicall.one-id.fr/numa/rag-id:1.1` correspondant au
+commit `1172bc9` du dépôt PREPROD (`main`) : rendu Markdown des réponses
+assistant (marked+DOMPurify servis localement, aucun CDN runtime, XSS
+neutralisé) et suivi conversationnel (`RAGPipeline.ask()` transmet
+l'historique borné aux 6 derniers messages via `/api/query`).
+
+Bascule effectuée le 11/09/2026, ~11h05 :
+- Build sur poste Windows relais (djinn-bot `/var` insuffisant, ~5,2 Go).
+- `DOCKER_BUILDKIT=0` + `--config` sans credsStore (contournement wincred).
+- `kubectl set image deploy/rag-id rag-id=…:1.1` → rollout OK.
+- Vérifs : `https://ragid.one-id.fr/` → HTTP 200 ; `/api/health` → ok ;
+  4 assets Markdown (`static/md-render.{js,css}`, `static/vendor/*`) → 200 ;
+  digest pod = digest poussé (`sha256:e68ab4bae90a…`) ;
+  `md-render.js` prod = local (7735 o) ;
+  aucun secret ni manifest modifié (seul le tag d'image bouge).
+
+Rollback : `kubectl set image deploy/rag-id rag-id=…:1.0` (image 1.0
+toujours présente sur le nœud, imagePullPolicy IfNotPresent).
