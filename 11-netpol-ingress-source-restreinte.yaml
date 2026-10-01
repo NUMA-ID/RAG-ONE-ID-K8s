@@ -1,0 +1,102 @@
+# =============================================================================
+# NETPOL-002 — Restreindre la SOURCE de l'Ingress des apps ao-id et drawio (ns numa)
+# =============================================================================
+# POURQUOI : l'admin cluster va retirer la policy globale « allow-same-namespace »
+# (ns numa). Audit 01/10 : les policies actuelles « allow-ao-id-8080 » et
+# « allow-drawio-8080 » (dépôt appel-offre-k8s, 06- et 07-) autorisent le TCP 8080
+# SANS règle « from » = depuis TOUTES sources (tout pod de tout namespace).
+# Les NetworkPolicies s'ADDITIVENT : ajouter une nouvelle policy restreinte sous
+# un nouveau nom ne fermerait RIEN (l'ancienne resterait ouverte en plus).
+# La migration consiste donc à RENDRE EXPLICITE la source DANS LES MÊMES POLICIES
+# (mêmes noms) : un « kubectl apply -f » de ce fichier REMPLACE le spec ingress
+# des policies existantes allow-ao-id-8080 / allow-drawio-8080. NE PAS renommer
+# les policies ni les créer sous d'autres noms (« create » refuserait ; un
+# doublon sous nouveau nom laisserait la règle ouverte en vigueur).
+#
+# QUI est autorisé en 8080 : uniquement les pods du namespace Envoy Gateway
+# (kubernetes.io/metadata.name: envoy-gateway-system) — modèle exact de la policy
+# admin « allow-gateway-ingress-8080 » déjà en place (podSelector {} , source ns
+# gateway, port 8080). Pour le chemin gateway, cette restriction est redondante
+# avec la policy admin ; la VALEUR AJOUTÉE réelle de ce fichier est de FERMER
+# le 8080 aux autres pods du ns numa (que allow-same-namespace ouvre aujourd'hui)
+# dès que celle-ci disparaîtra — et de survivre si la policy admin venait à être
+# retirée un jour (défense en profondeur : la règle gateway est portée ici).
+#
+# NOTE CNI (test 01/10) : ce CNI n'évalue pas les IP Service (ClusterIP) en
+# egress — l'isolation DOIT être portée par l'INGRESS avec source restreinte,
+# ce que fait ce fichier. Le trafic vers le port 80 des Services (DNAT 80->8080
+# vers le pod) est traité sur le port pod 8080 côté ingress.
+#
+# rag-id / qdrant : DÉJÀ bien faits, RIEN à ajouter ici —
+#   - rag-id  : 06-netpol-rag-id.yaml (ingress 8080) + 08-netpol-egress-rag-id.yaml
+#               (egress restreint nom par nom : DNS, 443, qdrant — NETPOL-001 vérifié).
+#   - qdrant  : 07-netpol-qdrant.yaml (ingress 6333/6334 depuis rag-id uniquement).
+#   Ces pods ne sont PAS ciblés par ce fichier (pas de doublon, pas de régression).
+#
+# Format : kind: List en document unique (équivalent strict de deux documents
+# « --- » pour kubectl apply ; garde le fichier chargeable par yaml.safe_load).
+# =============================================================================
+apiVersion: v1
+kind: List
+items:
+  # -------------------------------------------------------------------------
+  # Pod app=ao-id — Ingress TCP 8080 (port réel du pod ; le Service fait 80->8080).
+  # Migration de la policy existante « allow-ao-id-8080 » : même nom, source
+  # rendue explicite, en prévision du retrait de allow-same-namespace.
+  # -------------------------------------------------------------------------
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: allow-ao-id-8080
+      namespace: numa
+    spec:
+      podSelector:
+        matchLabels:
+          app: ao-id
+      policyTypes:
+        - Ingress
+      ingress:
+        # Seule source légitime vérifiée : le gateway Envoy (terminaison TLS
+        # puis HTTP->8080). L'iframe drawio du front AO-ID passe AUSSI par le
+        # gateway (HTTPRoute ao-id /drawio) — aucun flux pod->pod direct connu.
+        # TODO-ADMIN : confirmer qu'aucun pod du ns numa (ou autre ns) ne joint
+        # ao-id:8080 en direct (pod->pod, hors IP Service). Si oui, ajouter ici
+        # un podSelector/namespaceSelector nominal correspondant AVANT le retrait
+        # de allow-same-namespace, sinon ce flux tombera.
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: envoy-gateway-system
+          ports:
+            - protocol: TCP
+              port: 8080
+  # -------------------------------------------------------------------------
+  # Pod app=drawio — Ingress TCP 8080 (port réel du pod ; le Service fait 80->8080).
+  # Migration de la policy existante « allow-drawio-8080 » (dépôt
+  # appel-offre-k8s 07-drawio-route-netpol.yaml) : même nom, source explicite.
+  # -------------------------------------------------------------------------
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: allow-drawio-8080
+      namespace: numa
+    spec:
+      podSelector:
+        matchLabels:
+          app: drawio
+      policyTypes:
+        - Ingress
+      ingress:
+        # Source légitime : le gateway Envoy (route historique listener
+        # https-8081 et route ao-id /drawio). La HTTPRoute « drawio » vit dans
+        # le ns numa mais c'est le plan data Envoy (ns envoy-gateway-system)
+        # qui initie la connexion vers le pod — namespaceSelector ci-dessus OK.
+        # TODO-ADMIN : idem ao-id — confirmer l'absence de flux pod->pod direct
+        # vers drawio:8080 dans le ns numa avant le retrait global.
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: envoy-gateway-system
+          ports:
+            - protocol: TCP
+              port: 8080

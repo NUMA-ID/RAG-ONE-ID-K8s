@@ -3,6 +3,11 @@
 # Necessaire car la policy existante "allow-https-ingress-from-all" (qui cible
 # tous les pods du ns numa) n'ouvre que le 443, ce qui bloquerait le 8080.
 # Les NetworkPolicies s'additionnent : cette regle ouvre 8080 sans toucher le reste.
+# MIGRATION 01/10/2026 (NETPOL-002) : le "from" etait absent = port 8080 ouvert
+# a TOUTES sources. Source rendue explicite (ns Envoy Gateway seul), meme modele
+# que la policy admin allow-gateway-ingress-8080, en prevision du retrait de
+# allow-same-namespace par l'infra. "kubectl apply -f" sur ce fichier REMPLACE le
+# spec de la policy homonyme en cluster — ne pas renommer, ne pas dupliquer.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -15,6 +20,10 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    - ports:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+      ports:
         - protocol: TCP
           port: 8080
