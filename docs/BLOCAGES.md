@@ -216,3 +216,36 @@ interruption de service pendant la pause.
 **Résolution** : rollout effectué le 01/10 depuis le bureau ; toutes les
 vérifications post-bascule passées (digest, HTTP, assets, e2e /api/query).
 
+---
+
+## 10. Durcissement netpol_ingress bloqué par la ValidatingAdmissionPolicy admin
+
+**Date** : 01/10/2026
+
+**État** : OUVERT — application à faire par le service admin
+
+**Description** : les policies `allow-ao-id-8080`, `allow-drawio-8080`
+et `allow-rag-id-8080` (ns numa) n'ont aucune règle `from` : leur port
+8080 est ouvert à TOUTES sources, et le retrait annoncé d'
+`allow-same-namespace` ne fermera rien sur ces ports. Les versions
+durcies sont prêtes : `06-netpol-rag-id.yaml` (modifié) et
+`11-netpol-ingress-source-restreinte.yaml` (ao-id + drawio).
+
+**Cause du bloc** : la ValidatingAdmissionPolicy
+`tenant-np-reserved-protection` du cluster refuse toute modification de
+ces netpol par un compte non `tenant-provisioner` — et son expression
+plante sur `no such key: labels` car les objets existants n'ont pas de
+`metadata.labels`. Résultat : `kubectl apply` impossible côté NUMA,
+quand bien même la modification serait légitime.
+
+**Impact** : sans application avant le retrait d'allow-same-namespace,
+les ports 8080 de ces apps restent joignables depuis n'importe quel pod
+du cluster (faille latérale).
+
+**Action requise (service admin)** : appliquer les deux fichiers
+(`kubectl apply`, MÊMES NOMS — ne pas renommer : les netpol
+s'additionnent, un doublon laisserait la règle ouverte), ou corriger
+l'expression de la VAP qui référence une clé absente des objets.
+
+**Contournement en place** : aucun possible côté application.
+
