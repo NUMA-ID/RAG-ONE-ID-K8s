@@ -67,3 +67,35 @@ Bascule effectuée le 11/09/2026, ~11h05 :
 
 Rollback : `kubectl set image deploy/rag-id rag-id=…:1.0` (image 1.0
 toujours présente sur le nœud, imagePullPolicy IfNotPresent).
+
+## 01/10/2026 — Bascule PROD v1.3.0
+
+Image `apicall.one-id.fr/numa/rag-id:1.3.0` (digest
+`sha256:b7c766a5938b41571a2eb129b9d991c512981892ee182d623d0a29bde774cc82`),
+commit PREPROD `b1806e4`. Déroulé : build Windows 25/09 (vérifié :
+prompt Lyra présent dans `generation/fiche_technique.py`,
+`SCOPES=["Notes.Read.All","Sites.Read.All"]`, vendor assets) ; push
+25/09 ; rollout interrompu le soir même (pas de route réseau domicile →
+cluster, cf BLOCAGES #9) ; rollout terminé le 01/10.
+
+Contenu livré : prompt Lyra pour la génération de fiches techniques
+(RAG-001), URLs OneNote cliquables dans les sources des fiches
+(RAG-002/003, backfill Qdrant fait), fix scopes auth synchro OneNote
+(403 SharePoint résolu), bump 1.3.0.
+
+Vérifications 01/10 : rollout OK ; pod imageID = digest poussé ; `/` →
+200 ; `/api/health` → ok ; `/api/version` → 1.3.0-beta ; 4 assets
+Markdown → 200 ; clé LLM présente en DB PVC (llm_settings non vide,
+model gptoss20b) ; test bout en bout `POST /api/query` authentifié via
+cookie fabriqué → HTTP 200, réponse + 5 sources citées (le fond "info
+non trouvée pour 60F" est une réponse RAG correcte, pas une erreur).
+
+Manifest 04 relevé de 1.1 → 1.3.0 dans le même commit (l'écart
+manifest/cluster documenté dans la bascule v1.2.1 est résorbé).
+
+Point sans impact relevé : `/api/version` affiche nb_pages=0 car
+`data/onenote_registry.json` n'existe pas sur le PVC prod (le registre
+vit sur djinn-bot) — badge informatif seulement.
+
+Rollback : `kubectl -n numa set image deploy/rag-id
+rag-id=apicall.one-id.fr/numa/rag-id:1.2.2` (présent sur le nœud).
