@@ -249,3 +249,14 @@ l'expression de la VAP qui référence une clé absente des objets.
 
 **Contournement en place** : aucun possible côté application.
 
+**Vérification du 01/10 (après retour « modifications faites »)** :
+l'état du cluster est INCHANGÉ — `kubectl -n numa get netpol` :
+`allow-ao-id-8080`, `allow-drawio-8080`, `allow-rag-id-8080` toujours
+sans règle `from` (creationTimestamp = dates d'origine, aucune policy
+créée/modifiée le 01/10 dans le ns numa ni ailleurs dans le cluster,
+93 netpol scannées). `allow-same-namespace` toujours présent.
+Les 3 accès de test depuis le pod rag-id passent toujours. Le RAG est
+en bonne santé par ailleurs (/api/health ok). → Les modifications
+annoncées n'ont pas atteint ce cluster : soit appliquées sur un autre
+cluster/contexte, soit non poussées. À re-confirmer avec l'admin.
+
