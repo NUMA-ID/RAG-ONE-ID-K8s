@@ -154,3 +154,65 @@ Le RAG peut retrouver les documents OneNote KBID en production.
 
 **Résultat** : Job supprimé, solution abandonnée (en attente d'une vraie correction infra)
 
+---
+
+## 8. Secret client Azure AD « RAGID PROD » exposé en clair
+
+**Date** : 16/09/2026
+
+**État** : OUVERT — rotation à faire
+
+**Description** : le secret client `HXh8Q~...` (libellé Azure
+« RAGID PROD », keyId `78cd5bc6-f9ca-457c-8ff4-866d7279b371`) a été
+transmis en clair dans une conversation de travail.
+
+**Appartenance** : à confirmer. Le secret n'est **pas** celui de
+`agent-mail` (client public, sans secret). Numa indique qu'il n'est pas
+lié au projet RAG, bien que `RAG/PREPROD/auth/office365.py` lise une
+variable `AZURE_CLIENT_SECRET` (login web O365 du RAG) : il peut s'agir
+d'une app distincte. Aucun autre projet de djinn-bot n'utilise de client
+secret (vérifié par recherche le 16/09).
+
+**Impact** : quiconque a vu la conversation peut s'authentifier comme
+l'application propriétaire du secret.
+
+**Procédure de rotation** (l'ancien secret doit disparaître, mais
+supprimer avant de déployer le nouveau coupe le consommateur) :
+
+1. Azure Portal → Microsoft Entra ID → Inscriptions d'applications →
+   l'app qui porte le secret (repérer la ligne dont l'**ID** est
+   `78cd5bc6-f9ca-457c-8ff4-866d7279b371` dans *Certificats et secrets*
+   → *Secrets client*).
+2. **Créer d'abord** le remplaçant : *Nouveau secret client*, description
+   `RAGID v2`, puis **copier immédiatement la Valeur** (elle n'est plus
+   affichée ensuite).
+3. Mettre à jour le consommateur : secret K8s `rag-id-secrets` si c'est
+   bien ce secret-là (`kubectl create secret --dry-run=client -o yaml |
+   kubectl apply -f -`), et l'environnement local concerné.
+4. Redémarrer le service et vérifier que l'authentification fonctionne.
+5. **Puis supprimer** la ligne `78cd5bc6-...` (bouton *Supprimer*).
+
+**Contournement** : aucun. La rotation est la seule correction.
+
+**Note** : si aucun service en production n'utilise ce secret, on peut
+supprimer l'ancien immédiatement et accepter une coupure, plutôt que de
+le laisser vivant le temps de la rotation.
+
+---
+
+## 9. Bascule v1.3.0 interrompue avant rollout (25/09, résolue 01/10)
+
+**Date** : 25/09/2026
+
+**État** : RÉSOLU (rollout terminé le 01/10, cf DECISIONS.md du 01/10)
+
+**Description** : image 1.3.0 buildée, vérifiée et poussée le 25/09 ;
+`kubectl set image` impossible le soir même — API server
+`mrs-wkr.kube.internal:6443` (192.168.80.11-13) injoignable en TCP
+depuis le poste Windows à domicile (DNS OK, route absente). Cause
+réseau utilisateur, pas panne cluster. PROD est restée sur v1.2.1 sans
+interruption de service pendant la pause.
+
+**Résolution** : rollout effectué le 01/10 depuis le bureau ; toutes les
+vérifications post-bascule passées (digest, HTTP, assets, e2e /api/query).
+
