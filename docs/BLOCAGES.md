@@ -222,7 +222,8 @@ vérifications post-bascule passées (digest, HTTP, assets, e2e /api/query).
 
 **Date** : 01/10/2026
 
-**État** : OUVERT — application à faire par le service admin
+**État** : RÉSOLU le 01/10 — durcissement appliqué par nos soins une fois
+la VAP corrigée côté admin
 
 **Description** : les policies `allow-ao-id-8080`, `allow-drawio-8080`
 et `allow-rag-id-8080` (ns numa) n'ont aucune règle `from` : leur port
@@ -250,13 +251,18 @@ l'expression de la VAP qui référence une clé absente des objets.
 **Contournement en place** : aucun possible côté application.
 
 **Vérification du 01/10 (après retour « modifications faites »)** :
-l'état du cluster est INCHANGÉ — `kubectl -n numa get netpol` :
-`allow-ao-id-8080`, `allow-drawio-8080`, `allow-rag-id-8080` toujours
-sans règle `from` (creationTimestamp = dates d'origine, aucune policy
-créée/modifiée le 01/10 dans le ns numa ni ailleurs dans le cluster,
-93 netpol scannées). `allow-same-namespace` toujours présent.
-Les 3 accès de test depuis le pod rag-id passent toujours. Le RAG est
-en bonne santé par ailleurs (/api/health ok). → Les modifications
-annoncées n'ont pas atteint ce cluster : soit appliquées sur un autre
-cluster/contexte, soit non poussées. À re-confirmer avec l'admin.
+l'état du cluster était encore INCHANGÉ au moment du contrôle —
+les trois netpol sans `from`, aucune écriture du jour. → Interprété
+a posteriori : l'admin a corrigé la VAP
+(`tenant-np-reserved-protection`) sans rejouer les manifests ; la
+correction débloquait simplement nos `kubectl apply`.
+
+**Résolution (01/10, même jour)** : `kubectl apply --validate=false`
+de `11-netpol-ingress-source-restreinte.yaml` + `06-netpol-rag-id.yaml`
+réussi — les trois netpol portent désormais
+`from: ns envoy-gateway-system`. Vérifications après application :
+RAG `https://ragid.one-id.fr` → `/api/health` ok ; AO-ID
+`https://ao-id.one-id.fr` → 200 ; Drawio `https://ao-id.one-id.fr/drawio/`
+→ 200 (la racine `drawio.one-id.fr` n'existe pas, c'est le Host attendu).
+Aucun trafic légitime coupé.
 
