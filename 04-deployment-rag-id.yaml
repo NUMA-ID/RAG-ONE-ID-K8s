@@ -28,7 +28,7 @@ spec:
         fsGroup: 10001  # Permet au groupe 10001 d'écrire sur les PVC montées
       containers:
         - name: rag-id
-          image: apicall.one-id.fr/numa/rag-id:1.4.6
+          image: apicall.one-id.fr/numa/rag-id:1.4.7
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
