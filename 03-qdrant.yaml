@@ -85,21 +85,31 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          # startupProbe : la restauration d'un snapshot de 5 Go occupe Qdrant
+          # plusieurs minutes (80 segments à rejouer) pendant lesquelles l'API
+          # ne répond pas. Sans cette sonde, la liveness tuait le conteneur en
+          # pleine restauration (constaté le 16/11 : 2 redémarrages, exit 143).
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: 6333
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 180   # 30 min de démarrage tolérées
           livenessProbe:
             httpGet:
               path: /livez
               port: 6333
-            initialDelaySeconds: 20
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 5
           resources:
             requests:
               cpu: "100m"
-              memory: "256Mi"
+              memory: "4Gi"
             limits:
               cpu: "1"
-              memory: "1Gi"
+              memory: "8Gi"
   volumeClaimTemplates:
     - metadata:
         name: storage
@@ -109,7 +119,7 @@ spec:
         storageClassName: ceph-rbd
         resources:
           requests:
-            storage: 2Gi
+            storage: 20Gi
 ---
 apiVersion: v1
 kind: Service

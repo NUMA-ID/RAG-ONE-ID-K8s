@@ -93,6 +93,21 @@ COPY --chown=appuser:appuser ingestion/  /app/ingestion/
 COPY --chown=appuser:appuser parsing/    /app/parsing/
 COPY --chown=appuser:appuser scripts/    /app/scripts/
 COPY --chown=appuser:appuser web/        /app/web/
+# `agent/` (agent à outils, RAG-013) et `security/` (chiffrement des secrets)
+# étaient absents de cette liste : l'image 1.4.0 a démarré en CrashLoopBackOff
+# sur `ModuleNotFoundError: No module named 'agent'` (16/11). Les COPY sont
+# nominatifs, donc tout nouveau paquet doit être ajouté ici.
+COPY --chown=appuser:appuser agent/      /app/agent/
+COPY --chown=appuser:appuser security/   /app/security/
+# Fichiers isolés à la racine applicative (ils ne sont pas dans un paquet) :
+# `version.py` est importé par /api/version — oublié dans 1.4.0/1.4.1, l'endpoint
+# répondait 500 (ModuleNotFoundError) alors que le reste fonctionnait.
+COPY --chown=appuser:appuser version.py  /app/version.py
+
+# Garde-fou de build : une importation manquante fait échouer l'image ICI,
+# pas au démarrage en production. N'importe pas api.main (il lit
+# l'environnement) mais chaque paquet copié.
+RUN python -c "import agent.loop, agent.tools, security.crypto, parsing.document_parser, retrieval.counts, ingestion.sync_prospect, version" 
 
 USER appuser
 
