@@ -160,3 +160,30 @@ modèle du RAG sur `unsloth-oneid/Qwen3.8-Flash-Next` (demande utilisateur).
 
 Rollback : `set image … :1.4.8` et remettre `gptoss20b/gpt-oss-20b-1node` dans
 `llm_settings` (le correctif client_non_resolu n'existe qu'en 1.4.9).
+
+## 2026-11-23 — Bascule 1.5.0 : cache d'appels d'outil dans l'agent
+
+Image `1.5.0`, digest `sha256:39a16764b2995f23793392bd81fd7e5505f2128b8da0a31ae8c964618d3b34bf`
+(identique au pod). Commit applicatif `b058017` (code `602c306`).
+
+**Contexte** : la règle « ne rappelle pas un outil dont le résultat est déjà
+dans le fil » existait dans le prompt mais n'était pas suivie de façon fiable.
+Mesuré : une question traitée en 1 appel (32-38 s) prenait 3 appels et 63,6 s
+avec un autre modèle d'agent.
+
+**Décision** : cache local à `run()`, clé `(action, paramètres normalisés)`.
+Un appel identique n'est plus ré-exécuté ; le modèle reçoit
+`{"deja_appele": true, "note": ..., "resultat": ...}` et la trace porte
+« déjà appelé (cache) ». Un tour servi par le cache consomme quand même une
+étape du plafond de six, sinon un modèle qui boucle ne s'arrête jamais.
+
+**Mesure après déploiement** (deux questions réelles) : 36,4 s / 1 appel /
+16 sources, et 22,5 s / 2 appels / 11 sources. Aucun cache sollicité sur ces
+deux tours — le cache est un filet pour les cas pathologiques, pas un gain sur
+le régime nominal.
+
+**Piste réfutée le même jour** : basculer l'agent sur un modèle de code pour
+gagner du temps. Mesure : 3 appels et 63,6 s contre 1 appel et 32-38 s avec
+Qwen3.8-Flash-Next, parce que le modèle de code ne respecte pas la règle
+« un produit n'est pas un client ». Revenu au raisonneur, commentaire laissé
+dans le manifest.

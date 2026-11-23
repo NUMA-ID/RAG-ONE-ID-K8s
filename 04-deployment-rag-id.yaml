@@ -28,7 +28,7 @@ spec:
         fsGroup: 10001  # Permet au groupe 10001 d'écrire sur les PVC montées
       containers:
         - name: rag-id
-          image: apicall.one-id.fr/numa/rag-id:1.4.9
+          image: apicall.one-id.fr/numa/rag-id:1.5.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -41,10 +41,13 @@ spec:
             #     crm_support_full = backfill 5 ans (29 929 points, 21 972 tickets). ---
             - name: CRM_SOLUTIONS_COLLECTION
               value: "crm_support_full"
-            # --- Modèle de l'agent (boucle JSON à outils). Qwen3.8-Flash-Next
-            #     raisonne : son raisonnement consomme max_tokens avant content.
-            #     Mesuré dans le pod le 23/11 : 4,2 s et JSON valide à 700, mais
-            #     on garde 1 500 de marge pour les tours avec résultats d'outils. ---
+            # --- Modèle de l'agent (boucle JSON à outils) : Qwen3.8-Flash-Next.
+            #     Tentative du 23/11 de revenir au modèle de code pour gagner du
+            #     temps : RÉFUTÉE par la mesure. Même question, même prompt :
+            #     Qwen3.8 → 1 appel d'outil, 8 tickets, 32-38 s ; qwen3-coder-30b
+            #     → 3 appels (deux « aucun ticket » puis OneNote), 63,6 s. Le
+            #     modèle de code n'applique pas la règle « un produit n'est pas un
+            #     client ». On garde le raisonneur pour l'agent. ---
             - name: RAG_AGENT_MODEL
               value: "unsloth-oneid/Qwen3.8-Flash-Next"
             - name: RAG_AGENT_MAX_TOKENS
