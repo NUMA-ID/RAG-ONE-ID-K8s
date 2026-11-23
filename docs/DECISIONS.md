@@ -134,3 +134,29 @@ d'outil/paramètre qui doit être corrigée (règle de prompt + repli du tool
 Rollback : `kubectl -n numa set image deploy/rag-id
 rag-id=apicall.one-id.fr/numa/rag-id:1.4.7` (image du nœud) puis
 `kubectl apply` du manifest précédent pour retirer la variable.
+
+## 2026-11-23 — Bascule 1.4.9 : correctif client_non_resolu et modèle Qwen3.8-Flash-Next
+
+**Décidé** : déployer `1.4.9` (commit applicatif `fa8362b`) et basculer le
+modèle du RAG sur `unsloth-oneid/Qwen3.8-Flash-Next` (demande utilisateur).
+
+- Image `apicall.one-id.fr/numa/rag-id:1.4.9`, digest
+  `sha256:07ac9cfb7ca4033e56f7be7b5fec32c1c1694fd3d130bfaf8a917a0fd158b79a`,
+  identique à celui du pod.
+- Correctif `PRJ-RAG-016-J` : un `client` fourni mais non résolu rend
+  `client_non_resolu` + 3 suggestions au lieu d'un vide muet (le défaut de
+  recette du 23/11 : « VEEAM » passé comme client → « aucun ticket »). Règle
+  ajoutée au prompt (4 228 car.).
+- Modèle : `LLM_MODEL` en base (`llm_settings`, PVC) et `RAG_AGENT_MODEL`
+  en variable de déploiement. C'est un modèle **raisonneur** : son
+  `reasoning_content` consomme `max_tokens` avant `content`. Mesures dans le
+  pod : prompt système réel (3 993 car.) → JSON valide en 4,2 s à 700 tokens ;
+  contexte de 5 200 car. → réponse complète en 7-8 s à 1 500/4 000. D'où
+  `RAG_AGENT_MAX_TOKENS=1500` (défaut code 700 jugé trop juste avec résultats
+  d'outils).
+- Coût mesuré, assumé : une question d'agent prend **32-38 s** (raisonnement
+  inclus) contre ~10-20 s avec le modèle de code précédent ; le chat passe à
+  ~31 s. La qualité y gagne (réponses classées par type, références citées).
+
+Rollback : `set image … :1.4.8` et remettre `gptoss20b/gpt-oss-20b-1node` dans
+`llm_settings` (le correctif client_non_resolu n'existe qu'en 1.4.9).
