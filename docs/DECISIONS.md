@@ -99,3 +99,38 @@ vit sur djinn-bot) — badge informatif seulement.
 
 Rollback : `kubectl -n numa set image deploy/rag-id
 rag-id=apicall.one-id.fr/numa/rag-id:1.2.2` (présent sur le nœud).
+
+## 2026-11-23 — Bascule 1.4.8 : historique support CRM 5 ans en PROD
+
+**Décidé** : déployer l'image `1.4.8` (commit applicatif `cb086d3`, mergé sur
+`main` et poussé sur GitLab **et** GitHub) et transférer la collection CRM par
+snapshot plutôt que par réindexation.
+
+- Image : `apicall.one-id.fr/numa/rag-id:1.4.8`, digest
+  `sha256:c2e94505aa194d9909216cfdd9fdc2bd50dd4578fbe8f741754c39f9d0a3ce63`
+  — digest du pod vérifié identique à celui du push.
+- Données : snapshot de `crm_support_full` (220 Mo, 29 929 points, 25 574
+  documents : 21 972 tickets, 2 852 clients, 755 contrats), restauré dans le
+  Qdrant du cluster via `POST /collections/crm_support_full/snapshots/upload`.
+  Aucune réindexation en PROD : les vecteurs bge-m3 sont identiques, le coût
+  d'un backfill (6 h 55 en PREPROD) est évité.
+- Manifest : `04-deployment-rag-id.yaml` porte le tag `1.4.8` **et** la
+  variable `CRM_SOLUTIONS_COLLECTION=crm_support_full` — sans elle, l'agent
+  interroge `crm_support` (l'échantillon de 300 tickets) qui n'existe pas en
+  PROD et répond « aucun ticket ».
+
+**Recette réelle dans le pod** (cookie de session signé, pas de login O365) :
+21 972 tickets / 52 537 interventions ; « problèmes VINOLEM » → 8 tickets,
+125 tickets au compteur, 4 sources citées ; « TT032950 » → référence exacte,
+client LES SENIORIALES, interventions datées.
+
+**Défaut connu, non bloquant** : sur une question qui ne nomme aucun client
+mais contient un nom de produit (« erreur de sauvegarde VEEAM »), le modèle
+ajoute de lui-même un filtre `client` inventé et le compteur tombe à zéro.
+Le tool est correct (vérifié : 3 résultats sans filtre) ; c'est la sélection
+d'outil/paramètre qui doit être corrigée (règle de prompt + repli du tool
+« aucun ticket pour ce client, réessayez sans filtre »).
+
+Rollback : `kubectl -n numa set image deploy/rag-id
+rag-id=apicall.one-id.fr/numa/rag-id:1.4.7` (image du nœud) puis
+`kubectl apply` du manifest précédent pour retirer la variable.

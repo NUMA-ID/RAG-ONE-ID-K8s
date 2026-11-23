@@ -28,7 +28,7 @@ spec:
         fsGroup: 10001  # Permet au groupe 10001 d'écrire sur les PVC montées
       containers:
         - name: rag-id
-          image: apicall.one-id.fr/numa/rag-id:1.4.7
+          image: apicall.one-id.fr/numa/rag-id:1.4.8
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -36,6 +36,11 @@ spec:
             # --- Qdrant intra-cluster : lu par indexer/qdrant_store.py (os.environ) ---
             - name: QDRANT_URL
               value: "http://qdrant:6333"
+            # --- Collection de l'historique support CRM (PRJ-RAG-016) : lue par
+            #     agent/tools.py (chercher_solutions / compter_solutions).
+            #     crm_support_full = backfill 5 ans (29 929 points, 21 972 tickets). ---
+            - name: CRM_SOLUTIONS_COLLECTION
+              value: "crm_support_full"
             # --- LLM interne : le client utilise son défaut code https://llm.one-id.fr
             #     si non câblé ; renseigné ici pour lisibilité / évolution éventuelle. ---
             - name: LLM_BASE_URL
