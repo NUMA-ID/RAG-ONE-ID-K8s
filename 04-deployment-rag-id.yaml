@@ -28,7 +28,7 @@ spec:
         fsGroup: 10001  # Permet au groupe 10001 d'écrire sur les PVC montées
       containers:
         - name: rag-id
-          image: apicall.one-id.fr/numa/rag-id:1.5.0
+          image: apicall.one-id.fr/numa/rag-id:1.6.0
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -61,6 +61,11 @@ spec:
             #     /app). On fixe la valeur absolue pour lever toute ambiguïté. ---
             - name: RAG_DB_PATH
               value: "/app/data/rag_oneid.db"
+            # --- SQLite des interventions CRM (PRJ-RAG-018, `lire_tache`) : lu en
+            #     lecture seule au chemin par défaut du code /app/data/taches_crm.db,
+            #     sur le PVC RWO déjà monté /app/data (aucune nouvelle variable).
+            #     Le fichier est copié dessus par kubectl exec depuis djinn-bot,
+            #     où vit l'ingestion (pas de CronJob K8s). docs/EXPLOITATION.md. ---
             # --- URL publique de callback OAuth2 (à enregistrer côté Azure AD). ---
             - name: AZURE_REDIRECT_URI
               value: "https://ragid.one-id.fr/auth/callback"
